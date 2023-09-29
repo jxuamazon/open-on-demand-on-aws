@@ -7,7 +7,7 @@ Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: Active Directory
+          default: Simple AD
         Parameters:
           - DomainName
           - TopLevelDomain
@@ -16,11 +16,11 @@ Metadata:
         Parameters:
           - WebsiteDomainName
           - PortalAllowedIPCIDR
-      - Label:
-          default: DNS Settings
-        Parameters:
-          - HostedZoneName
-          - HostedZoneId
+#      - Label:
+#          default: DNS Settings
+#        Parameters:
+#          - HostedZoneName
+#          - HostedZoneId
     ParameterLabels:
       DomainName:
         default: Domain Name
@@ -30,10 +30,10 @@ Metadata:
         default: Portal Allowed IP CIDR
       WebsiteDomainName:
         default: Website Domain Name
-      HostedZoneName:
-        default: Hosted Zone Name
-      HostedZoneId:
-        default: Hosted Zone Id
+#      HostedZoneName:
+#        default: Hosted Zone Name
+#      HostedZoneId:
+#        default: Hosted Zone Id
 Parameters:
   DomainName:
     Description: Domain name not including the top level domain
@@ -50,13 +50,12 @@ Parameters:
   WebsiteDomainName:
     Description: Domain name for world facing website
     Type: String
-  HostedZoneName:
-    Description: Hosted zone for the domain
-    Type: String
-    AllowedPattern: '[A-Za-z\.]*\.$'
-  HostedZoneId:
-    Description: Hosted Zone Id for Route53 Domain
-    Type: String
+#  HostedZoneName:
+#    Description: Hosted zone for the domain
+#    Type: String
+#  HostedZoneId:
+#    Description: Hosted Zone Id for Route53 Domain
+#    Type: String
   PortalAllowedIPCIDR:
     Description: IP CIDR for access to the Portal
     Type: String
@@ -69,60 +68,27 @@ Parameters:
 Mappings:
   RegionMap:
     us-east-1:
-      AMIID: ami-01c2b1fd90d50901d
+      AMIID: ami-0ee70e88eed976a1b
       ALBLogAccount: 127311923021
     us-east-2:
-      AMIID: ami-09c56d1aaec7893bb
+      AMIID: ami-045b0a05944af45c1
       ALBLogAccount: 033677994240
     us-west-1:
-      AMIID: ami-0c552519e34d33e2b
+      AMIID: ami-006f59adcb98c236f
       ALBLogAccount: 027434742980
     us-west-2:
-      AMIID: ami-0e97835d93735ae57
+      AMIID: ami-056c679fab9e48d8a
       ALBLogAccount: 797873946194
-    ap-northeast-1:
-      AMIID: ami-061612a599ab4a957
-      ALBLogAccount: 582318560864
-    ap-northeast-2:
-      AMIID: ami-08536dc629652c707
-      ALBLogAccount: 600734575887
-    ap-south-1:
-      AMIID: ami-0d34439bc3c3e6794
-      ALBLogAccount: 718504428378
-    ap-southeast-1:
-      AMIID: ami-047f51f51fcfb9b38
-      ALBLogAccount: 114774131450
-    ap-southeast-2:
-      AMIID: ami-079721dc03e3366ac
-      ALBLogAccount: 783225319266
-    ca-central-1:
-      AMIID: ami-0f9e51aefa079a3f3
-      ALBLogAccount: 985666609251
-    eu-central-1:
-      AMIID: ami-0d062d04fc349b92d
-      ALBLogAccount: 054676820928
-    eu-north-1:
-      AMIID: ami-0ba80a09a6f5d7c9d
-      ALBLogAccount: 027434742980
-    eu-west-1:
-      AMIID: ami-0660a33b46d1311c0
-      ALBLogAccount: 156460612806
-    eu-west-2:
-      AMIID: ami-0dc906b44a3fc35eb
-      ALBLogAccount: 652711504416
-    eu-west-3:
-      AMIID: ami-0103dc69ed3abc61f
-      ALBLogAccount: 009996457667
 Resources:
 
-  OODCertificate:
-    Type: AWS::CertificateManager::Certificate
-    Properties:
-      DomainName: !Ref WebsiteDomainName
-      ValidationMethod: DNS
-      DomainValidationOptions:
-        - HostedZoneId: !Ref HostedZoneId
-          DomainName: !Ref WebsiteDomainName
+#  OODCertificate:
+#    Type: AWS::CertificateManager::Certificate
+#    Properties:
+#      DomainName: !Ref WebsiteDomainName
+#      ValidationMethod: DNS
+#      DomainValidationOptions:
+#        - HostedZoneId: !Ref HostedZoneId
+#          DomainName: !Ref WebsiteDomainName
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -545,17 +511,6 @@ Resources:
       GroupId: !GetAtt PortalSecurityGroup.GroupId
       DestinationSecurityGroupId: !GetAtt HeadNodeSecurityGroup.GroupId
 
-  PortalComputeNodeEgress:
-    Type: AWS::EC2::SecurityGroupEgress
-    Properties:
-      IpProtocol: tcp
-      FromPort: 0
-      ToPort: 65535
-      Description: Outbound to Compute Nodes for Interactive Apps
-      GroupId: !GetAtt PortalSecurityGroup.GroupId
-      DestinationSecurityGroupId: !GetAtt ComputeNodeSecurityGroup.GroupId
-
-
   HeadNodeSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -565,12 +520,12 @@ Resources:
           FromPort: 6819
           ToPort: 6819
           IpProtocol: tcp
-          Description: Slurm Accounting
+          Description: Allows inbound for Slurm Accounting
         - SourceSecurityGroupId: !Ref PortalSecurityGroup
           FromPort: 6820
           ToPort: 6820
           IpProtocol: tcp
-          Description: Slurm Accounting
+          Description: Allows inbound for Slurm Accounting
       SecurityGroupEgress:
         - Description: Remove default rule for egress
           CidrIp: 127.0.0.1/32
@@ -581,12 +536,6 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Security Group for PCluster ComputeNode
-      SecurityGroupIngress:
-        - SourceSecurityGroupId: !Ref PortalSecurityGroup
-          FromPort: 0
-          ToPort: 65535
-          IpProtocol: tcp
-          Description: Portal rule for for Interactive Apps
       SecurityGroupEgress:
         - Description: Remove default rule for egress
           CidrIp: 127.0.0.1/32
@@ -599,7 +548,7 @@ Resources:
       Description: !Sub AD Secrets for Open On Demand Stack ${AWS::StackName}
       GenerateSecretString:
         PasswordLength: 12
-        ExcludeCharacters: '"@/\''$`,;!%<>#'
+        ExcludeCharacters: '"@/\''$`,;!%'
 
   OpenOnDemandSecrets:
     Type: AWS::SecretsManager::Secret
@@ -747,7 +696,8 @@ Resources:
             configure_cert:
               command: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts/configure_instance_cert.sh
           sources:
-            /etc/ood-install: !Sub https://github.com/aws-samples/open-on-demand-on-aws/archive/refs/heads/${Branch}.zip
+#            /etc/ood-install: !Sub https://github.com/aws-samples/open-on-demand-on-aws/archive/refs/heads/${Branch}.zip
+            /etc/ood-install: !Sub https://github.com/jxuamazon/open-on-demand-on-aws/archive/refs/heads/${Branch}.zip
           files: # Creates a file with appropriate variables for use in scripts. No secrets in here
             /etc/ood-install/set_variables.sh:
               content: !Sub |
@@ -806,17 +756,17 @@ Resources:
                 . /etc/ood-install/set_variables.sh
                 ./configure_slurm_accounting.sh
               cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
-        spack:
-          commands:
-            install_spack:
-              command: ./install_spack.sh
-              cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
         ood:
           commands:
             ood_install:
               command: |
                 . /etc/ood-install/set_variables.sh
                 ./install_ood.sh
+              cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
+        spack:
+          commands:
+            install_spack:
+              command: ./install_spack.sh
               cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
     Properties:
       LaunchTemplateName: !Sub ${AWS::StackName}-launch-template-cfn-init
@@ -995,7 +945,8 @@ Resources:
           TargetGroupArn: !Ref OpenOnDemandTargetGroupHTTPS
       LoadBalancerArn: !Ref ALB
       Certificates:
-        - CertificateArn: !Ref OODCertificate
+#        - CertificateArn: !Ref OODCertificate
+        - CertificateArn: arn:aws:acm:us-east-1:695237655746:certificate/17f49b8b-d654-4590-a637-d853d881d792
       Port: 443
       Protocol: "HTTPS"
       SslPolicy: ELBSecurityPolicy-TLS-1-2-Ext-2018-06
@@ -1290,15 +1241,15 @@ Resources:
                 - !Sub ${ClusterConfigBucket.Arn}/
           ReadWriteType: WriteOnly
 
-  DNSRecord:
-    Type: AWS::Route53::RecordSet
-    Properties:
-      HostedZoneName: !Ref HostedZoneName
-      Name: !Ref WebsiteDomainName
-      AliasTarget:
-        DNSName: !GetAtt ALB.DNSName
-        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
-      Type: A
+#  DNSRecord:
+#    Type: AWS::Route53::RecordSet
+#    Properties:
+#      HostedZoneName: !Ref HostedZoneName
+#      Name: !Ref WebsiteDomainName
+#      AliasTarget:
+#        DNSName: !GetAtt ALB.DNSName
+#        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+#      Type: A
 
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup

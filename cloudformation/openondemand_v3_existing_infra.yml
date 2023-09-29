@@ -1,0 +1,609 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: OpenOnDemand on AWS
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Active Directory
+        Parameters:
+          - DomainName
+          - TopLevelDomain
+          - NLBDNSName
+          - ADAdministratorSecret
+      - Label:
+          default: Portal
+        Parameters:
+          - WebsiteDomainName
+          - AuroraMasterSecret
+    ParameterLabels:
+      DomainName:
+        default: Domain Name
+      TopLevelDomain:
+        default: Top level domain
+      ADAdministratorSecret:
+        default: ADAdministrator Secret name
+      WebsiteDomainName:
+        default: Website Domain Name
+      AuroraMasterSecret:
+        default: Aurora DB secret name
+      
+Parameters:
+  DomainName:
+    Description: Domain name not including the top level domain
+    Default: rc
+    Type: String
+    AllowedPattern: '[a-zA-Z0-9]+'
+  TopLevelDomain:
+    Description: TLD for your domain (i.e. local, com, etc)
+    Type: String
+    MinLength: '1'
+    MaxLength: '15'
+    Default: local
+    AllowedPattern: '[a-zA-Z0-9]+'
+  ADAdministratorSecret:
+    Description: AD admin secret ARN
+    Type: String
+    Default: arn:aws:secretsmanager:us-east-1:695237655746:secret:ADAdministratorSecret-bFgSPXt9OEbW-X9qJS6
+  AuroraMasterSecret:
+    Description: Aurora Master secret name
+    Type: String
+    Default: arn:aws:secretsmanager:us-east-1:695237655746:secret:NewOpenOnDemand-rds-slurm-accounting-secret-D9KbJD
+  NLBDNSName:
+    Description: existing AD NLB domain name or domain control IP lists
+    Type: String
+    Default: NewOpen-NLB-R7R2V8Z9P2W-010e9b5aaeb25455.elb.us-east-1.amazonaws.com
+  WebsiteDomainName:
+    Description: Domain name for world facing website
+    Type: String
+    Default: ood3.myoctank.net
+  Branch:
+    Description: Branch of the code to deploy. Only use this when testing changes to the solution
+    Default: upgrade-v3
+    Type: String
+  PortalSecurityGroup:
+    Description: OOD portal security group id 
+    Type: String
+    Default: sg-0393a934f76fe3070
+  PrivateSubnet1:
+    Description: Private subnet id  
+    Type: String
+    Default: subnet-0ccad3ff49d96ba29	
+  PrivateSubnet2:
+    Description: Private subnet id  
+    Type: String
+    Default: subnet-062f1984278dfa49f	
+  VpcId:
+    Description: VPC ID
+    Type: String
+    Default: vpc-083d5c5f89aeb59e5
+  ALBDNSName:
+    Description: ALB DNS name
+    Type: String
+    Default: NewOpen-ALB-1LNJBO7RARDTI-1416822595.us-east-1.elb.amazonaws.com
+  SharedFileSystemArn:
+    Description: shared file system 
+    Type: String
+    Default: arn:aws:elasticfilesystem:us-east-1:695237655746:file-system/fs-041f420962c82f19b
+  SharedFileSystem:
+    Description: Shared file system file id
+    Type: String
+    Default: fs-041f420962c82f19b
+  SlurmVersion:
+    Description: Verion of slurm to install
+    Default: 23.02.2
+    Type: String
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMIID: ami-0408adfcef670a71e
+    us-east-2:
+      AMIID: ami-004dae62019936191
+    us-west-1:
+      AMIID: ami-035663315c4daae24
+    us-west-2:
+      AMIID: ami-0f1a3eb997d0e161a
+    ap-northeast-1:
+      AMIID: ami-06f25f372d5d98da3
+    ap-northeast-2:
+      AMIID: ami-0610630c2df4f6edd
+    ap-south-1:
+      ALBLogAccount: 718504428378
+    ap-southeast-1:
+      AMIID: ami-081ab28ecb8f9f07f
+    ap-southeast-2:
+      AMIID: ami-02e33cab84ad3b7e5
+    ca-central-1:
+      AMIID: ami-0d4b8b87818b26421
+    eu-central-1:
+      AMIID: ami-0071fbe485985432e
+    eu-north-1:
+      AMIID: ami-0d534fbf90e256d14
+    eu-west-1:
+      AMIID: ami-01b1f2cdbfcb3644e
+    eu-west-2:
+      AMIID: ami-0103fdca60001bd3c
+    eu-west-3:
+      AMIID: ami-0f2c91ec8df4bde48
+
+Resources:
+  OpenOnDemandSecrets:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub Secrets for Open On Demand Stack ${AWS::StackName}
+      SecretString: !Join
+        - ''
+        - - '{'
+          - !Sub '"TopLevelDomain": "${TopLevelDomain}",'
+          - !Sub '"ClusterConfigBucket": "${ClusterConfigBucket}",'
+          - !Sub '"DomainName": "${DomainName}"'
+          - '}'
+
+  OODInstanceManagedPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource:
+              - !Ref ADAdministratorSecret
+              - !Ref OpenOnDemandSecrets
+              - !Ref AuroraMasterSecret
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+              - s3:DeleteObject
+            Resource:
+              - !GetAtt ClusterConfigBucket.Arn
+              - !Sub ${ClusterConfigBucket.Arn}/*
+          - Effect: Allow
+            Action:
+              - elasticfilesystem:ClientMount
+              - elasticfilesystem:ClientWrite
+              - elasticfilesystem:ClientRootAccess
+            Resource:
+              - !Ref SharedFileSystemArn
+          - Effect: Allow
+            Action:
+              - logs:DescribeLogGroups
+              - logs:DescribeLogStreams
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+          - Effect: Allow
+            Action:
+              - ec2:DescribeTags
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - cloudformation:DescribeStacks
+            Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/*
+
+  OODInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - !Ref OODInstanceManagedPolicy
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName} - OpenOnDemand IAM Role'
+
+  OpenOnDemandInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref OODInstanceRole
+
+  OpenOnDemandLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          config:
+            - initsetup
+            - config
+            - setupInfrastructure
+            - slurm
+            - ood
+        initsetup:
+          commands:
+            initsetupcmd:
+              command: |
+                apt update -y -q
+                sed -i "/#\$nrconf{restart} = 'i';/s/.*/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+                touch /var/log/install.txt
+        config:
+          packages:
+            apt:
+              awscli: []
+              jq: []
+              realmd: []
+              sssd: []
+          commands:
+            initial_setup:
+              command: |
+                groupadd spack-users -g 4000
+            configure_cert:
+              command: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts/configure_instance_cert.sh
+          sources:
+            /etc/ood-install: !Sub https://github.com/dmorand17/open-on-demand-on-aws/archive/refs/heads/${Branch}.zip
+          files: # Creates a file with appropriate variables for use in scripts. No secrets in here
+            /etc/ood-install/set_variables.sh:
+              content: !Sub |
+                export AD_SECRET_ID=${OpenOnDemandSecrets}
+                export AD_PASSWORD=${ADAdministratorSecret}
+                export AWS_REGION=${AWS::Region}
+                export DOMAIN_NAME=${DomainName}
+                export TOP_LEVEL_DOMAIN=${TopLevelDomain}
+                export RDS_SECRET_ID=${AuroraMasterSecret}
+                export ALB_DNS_NAME=${ALBDNSName}
+                export WEBSITE_DOMAIN=${WebsiteDomainName}
+                export LDAP_NLB=${NLBDNSName}
+                export EFS_ID=${SharedFileSystem}
+                export CLUSTER_CONFIG_BUCKET=${ClusterConfigBucket}
+                export SLURM_VERSION=${SlurmVersion}
+              mode: "000744"
+              owner: "root"
+              group: "root"
+          users:
+            slurm:
+              uid: 401
+            munge:
+              uid: 402
+          services:
+            amazon-ssm-agent:
+              enabled: "true"
+              ensureRunning: "true"
+        setupInfrastructure:
+          commands:
+            1_configure_cloudwatch:
+              command: ./configure_cloudwatch_metrics.sh
+              cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
+            2_mount_efs:
+              command: |
+                . /etc/ood-install/set_variables.sh
+                ./mount_efs.sh
+              cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
+            3_configure_mkhomedir:
+              command: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts/configure_mkhomedir.sh
+            4_upload_pcluster_configs:
+              command: |
+                . /etc/ood-install/set_variables.sh
+                ./upload_pcluster_configs.sh
+              cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
+        slurm:
+          commands:
+            1_install_munge:
+              command: |
+                . /etc/ood-install/set_variables.sh
+                ./install_munge.sh
+              cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
+            2_install_slurm:
+              command: |
+                . /etc/ood-install/set_variables.sh
+                ./install_slurm.sh
+              cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
+            3_configure_slurm_accounting:
+              command: |
+                . /etc/ood-install/set_variables.sh
+                ./configure_slurm_accounting.sh
+              cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
+        spack:
+          commands:
+            install_spack:
+              command: ./install_spack.sh
+              cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
+        ood:
+          commands:
+            ood_install:
+              command: |
+                . /etc/ood-install/set_variables.sh
+                ./install_ood.sh
+              cwd: !Sub /etc/ood-install/open-on-demand-on-aws-${Branch}/scripts
+    Properties:
+      LaunchTemplateName: !Sub ${AWS::StackName}-launch-template-cfn-init
+      LaunchTemplateData:
+        ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMIID]
+        InstanceType: m6i.large
+        IamInstanceProfile:
+          Name: !Ref OpenOnDemandInstanceProfile
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: true
+              VolumeSize: 60
+              VolumeType: gp3
+        SecurityGroupIds:
+          - !Ref PortalSecurityGroup
+        Monitoring:
+          Enabled: true
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            cd /opt
+            curl -O https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+            tar -xvpf aws-cfn-bootstrap-py3-latest.tar.gz
+            cd aws-cfn-bootstrap-2.0
+            python3 setup.py build
+            python3 setup.py install
+
+            cd /opt
+            mkdir aws
+            cd aws
+            mkdir bin
+            INSTALL_PATH=/usr/local/bin
+            ln -s $INSTALL_PATH/cfn-hup /opt/aws/bin/cfn-hup
+            ln -s $INSTALL_PATH/cfn-init /opt/aws/bin/cfn-init
+            ln -s $INSTALL_PATH/cfn-signal /opt/aws/bin/cfn-signal
+            ln -s $INSTALL_PATH/cfn-elect-cmd-leader /opt/aws/bin/cfn-elect-cmd-leader
+            ln -s $INSTALL_PATH/cfn-get-metadata /opt/aws/bin/cfn-get-metadata
+            ln -s $INSTALL_PATH/cfn-send-cmd-event /opt/aws/bin/cfn-send-cmd-event
+            ln -s $INSTALL_PATH/cfn-send-cmd-result /opt/aws/bin/cfn-send-cmd-result
+
+            # Call cfn-init script to install files and packages
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource OpenOnDemandLaunchTemplate --region ${AWS::Region} --configset config
+
+  OODServerASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: "1"
+      MaxSize: "1"
+      DesiredCapacity: "1"
+      HealthCheckGracePeriod: 240
+      MetricsCollection:
+        - Granularity: 1Minute
+      LaunchTemplate:
+        LaunchTemplateId: !Ref OpenOnDemandLaunchTemplate
+        Version: !GetAtt OpenOnDemandLaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      TargetGroupARNs:
+        - !Ref OpenOnDemandTargetGroupHTTPS
+      Tags:
+        - Key: Name
+          Value: !Sub OpenOnDemand Portal - ${AWS::StackName}-cfn-init
+          PropagateAtLaunch: true
+        - Key: ood
+          Value: !Sub webportal-${AWS::StackName}
+          PropagateAtLaunch: true
+    UpdatePolicy:
+      AutoScalingRollingUpdate: {}
+
+
+  OpenOnDemandTargetGroupHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 6
+      HealthCheckTimeoutSeconds: 5
+      TargetType: instance
+      Protocol: HTTPS
+      Port: 443
+      VpcId: !Ref VpcId
+      Matcher:
+        HttpCode: 301
+
+  ClusterConfigBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  ClusterConfigBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ClusterConfigBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: ForceSSLRequests
+            Action:
+              - 's3:*'
+            Effect: Deny
+            Resource:
+              - !Sub arn:${AWS::Partition}:s3:::${ClusterConfigBucket}
+              - !Sub arn:${AWS::Partition}:s3:::${ClusterConfigBucket}/*
+            Principal: '*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': "false"
+
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - !Ref EventBridgeManagedPolicy
+
+  EventBridgeManagedPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow # Allows execution of RunShellScript doc
+            Action:
+              - ssm:SendCommand
+            Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
+
+  ClusterConfigUpload:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Copy config files to OOD instance when an object is uploaded
+      State: "ENABLED"
+      EventPattern:
+        source:
+          - "aws.s3"
+        detail:
+          eventName:
+            - "PutObject"
+          requestParameters:
+            bucketName:
+              - !Ref ClusterConfigBucket
+      Targets:
+        - Id: RunShell
+          Arn: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          Input: !Sub |
+           {
+            "commands": ["aws s3 sync s3://${ClusterConfigBucket}/clusters /etc/ood/config/clusters.d/"]
+           }
+          RunCommandParameters:
+            RunCommandTargets:
+              - Key: tag:ood
+                Values:
+                  - !Sub webportal-${AWS::StackName}
+
+  PClusterCloudformationDeleted:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Remove config files from OOD instance when pcluster removes a stack
+      State: "ENABLED"
+      EventPattern:
+        source:
+          - "aws.cloudformation"
+        detail:
+          eventName:
+            - "DeleteStack"
+      Targets:
+        - Id: RunShell
+          Arn: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          InputTransformer:
+            InputPathsMap:
+              stackName: $.detail.requestParameters.stackName
+            InputTemplate: !Sub |
+              {
+                "commands": [
+                    "IFS='/ ' read -r -a array <<< '<stackName>'",
+                    "stackName=${!array[1]}",
+                    "tags=$(aws cloudformation describe-stacks --stack-name $stackName --region ${AWS::Region} --query \"Stacks[0].Tags[?Key=='parallelcluster:version']\" --output text)",
+                    "if [ ! -z \"$tags\" ];",
+                    "then",
+                    " aws s3 rm s3://${ClusterConfigBucket}/clusters/$stackName.yml",
+                    " rm /etc/ood/config/clusters.d/$stackName.yml",
+                    " sacctmgr remove cluster $stackName -i",
+                    "fi"
+                  ]
+              }
+          RunCommandParameters:
+            RunCommandTargets:
+              - Key: tag:ood
+                Values:
+                  - !Sub webportal-${AWS::StackName}
+
+  HeadNodeParallelClusterIAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource:
+              - !Ref OpenOnDemandSecrets
+              - !Ref AuroraMasterSecret
+              - !Ref ADAdministratorSecret
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Resource:
+              - !GetAtt ClusterConfigBucket.Arn
+              - !Sub ${ClusterConfigBucket.Arn}/*
+          - Effect: Allow
+            Action:
+              - elasticfilesystem:ClientMount
+              - elasticfilesystem:ClientWrite
+              - elasticfilesystem:ClientRootAccess
+            Resource:
+              - !Ref SharedFileSystemArn
+          - Effect: Allow
+            Action:
+              - cloudformation:Describe*
+              - cloudformation:List*
+            Resource:
+              - !Ref AWS::StackId
+
+  ParallelClusterWorkerNodeIAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - elasticfilesystem:ClientMount
+              - elasticfilesystem:ClientWrite
+              - elasticfilesystem:ClientRootAccess
+            Resource:
+              - !Ref SharedFileSystemArn
+          - Effect: Allow
+            Action:
+              - cloudformation:Describe* # TODO: Scope down
+              - cloudformation:List* # TODO: Scope down
+            Resource:
+              - !Ref AWS::StackId
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Resource:
+              - !GetAtt ClusterConfigBucket.Arn
+              - !Sub ${ClusterConfigBucket.Arn}/*
+Outputs:
+  URL:
+    Description: URL
+    Value: !Sub http://${ALBDNSName}
+  ClusterConfigBucket:
+    Description: S3 Bucket where Cluster Configuration items are stored
+    Value: !Ref ClusterConfigBucket
+  SecretId:
+    Description: Open OnDemand Secret ID
+    Value: !Ref OpenOnDemandSecrets
+  DBSecretId:
+    Description: RDS Secret
+    Value: !Ref AuroraMasterSecret
+  EFSMountId:
+    Description: EFS id
+    Value: !Ref SharedFileSystem
